@@ -1,23 +1,74 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Speech Practice & Evaluation</title>
+    <title>Speech Evaluation Tool</title>
+    <script>
+        let recognition;
+        let isRecording = false;
+
+        function toggleRecording() {
+            if (isRecording) {
+                recognition.stop();
+                document.getElementById("status").innerText = "Stopped";
+                isRecording = false;
+                document.getElementById("startBtn").innerText = "Start Recording";
+            } else {
+                recognition = new webkitSpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = true;
+                recognition.lang = 'en-US';
+
+                let finalTranscript = '';
+                recognition.onresult = function (event) {
+                    let interimTranscript = '';
+                    for (let i = event.resultIndex; i < event.results.length; ++i) {
+                        if (event.results[i].isFinal) {
+                            finalTranscript += event.results[i][0].transcript + ' ';
+                        } else {
+                            interimTranscript += event.results[i][0].transcript;
+                        }
+                    }
+                    document.getElementById("transcript").innerText = finalTranscript + interimTranscript;
+                };
+
+                recognition.onend = function () {
+                    fetch('/analyze', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ transcript: document.getElementById("transcript").innerText })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById("results").innerHTML = `
+                            <h3>Evaluation Summary</h3>
+                            <p><strong>Transcript:</strong> ${data.transcript}</p>
+                            <p><strong>Grammar Issues:</strong> ${data.grammar_feedback.length}</p>
+                            <ul>${data.grammar_feedback.map(f => `<li>${f.message} <em>(${f.sentence})</em></li>`).join('')}</ul>
+                            <p><strong>Filler Words:</strong> ${Object.entries(data.filler_counts).map(([w, c]) => `${w}: ${c}`).join(', ')}</p>
+                            <p><strong>Sentence Structure:</strong> ${data.structure_feedback}</p>
+                            <p><strong>Fluency:</strong> ${data.fluency}</p>
+                            <p><strong>Confidence:</strong> ${data.confidence}</p>
+                            <p><strong>Simulated Pauses:</strong> ${data.pauses}</p>
+                        `;
+                    });
+                };
+
+                recognition.start();
+                isRecording = true;
+                document.getElementById("status").innerText = "Recording...";
+                document.getElementById("startBtn").innerText = "Stop Recording";
+            }
+        }
+    </script>
 </head>
 <body>
-    <h1>🎤 AI Speech Practice Tool</h1>
-    
-    <button onclick="startRecording()">Start Recording</button>
-    <button onclick="stopRecording()">Stop Recording</button>
-
-    <h3>Live Transcription:</h3>
-    <div id="transcription" style="background:#f0f0f0;padding:10px;"></div>
-
-    <h3>Microphone Status:</h3>
-    <div id="micStatus" style="color: green;"></div>
-
-    <h3>AI Feedback:</h3>
-    <div id="feedback" style="background:#e0ffe0;padding:10px;"></div>
-
-    <script src="/static/script.js"></script>
+    <h1>Speech Evaluation Tool</h1>
+    <button id="startBtn" onclick="toggleRecording()">Start Recording</button>
+    <p id="status">Not recording</p>
+    <h3>Live Transcript:</h3>
+    <p id="transcript"></p>
+    <div id="results"></div>
 </body>
 </html>
