@@ -1,74 +1,106 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Speech Evaluation Tool</title>
-    <script>
-        let recognition;
-        let isRecording = false;
+    <meta charset="UTF-8">
+    <title>Speech Analysis App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-        function toggleRecording() {
-            if (isRecording) {
-                recognition.stop();
-                document.getElementById("status").innerText = "Stopped";
-                isRecording = false;
-                document.getElementById("startBtn").innerText = "Start Recording";
-            } else {
-                recognition = new webkitSpeechRecognition();
-                recognition.continuous = true;
-                recognition.interimResults = true;
-                recognition.lang = 'en-US';
-
-                let finalTranscript = '';
-                recognition.onresult = function (event) {
-                    let interimTranscript = '';
-                    for (let i = event.resultIndex; i < event.results.length; ++i) {
-                        if (event.results[i].isFinal) {
-                            finalTranscript += event.results[i][0].transcript + ' ';
-                        } else {
-                            interimTranscript += event.results[i][0].transcript;
-                        }
-                    }
-                    document.getElementById("transcript").innerText = finalTranscript + interimTranscript;
-                };
-
-                recognition.onend = function () {
-                    fetch('/analyze', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ transcript: document.getElementById("transcript").innerText })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        document.getElementById("results").innerHTML = `
-                            <h3>Evaluation Summary</h3>
-                            <p><strong>Transcript:</strong> ${data.transcript}</p>
-                            <p><strong>Grammar Issues:</strong> ${data.grammar_feedback.length}</p>
-                            <ul>${data.grammar_feedback.map(f => `<li>${f.message} <em>(${f.sentence})</em></li>`).join('')}</ul>
-                            <p><strong>Filler Words:</strong> ${Object.entries(data.filler_counts).map(([w, c]) => `${w}: ${c}`).join(', ')}</p>
-                            <p><strong>Sentence Structure:</strong> ${data.structure_feedback}</p>
-                            <p><strong>Fluency:</strong> ${data.fluency}</p>
-                            <p><strong>Confidence:</strong> ${data.confidence}</p>
-                            <p><strong>Simulated Pauses:</strong> ${data.pauses}</p>
-                        `;
-                    });
-                };
-
-                recognition.start();
-                isRecording = true;
-                document.getElementById("status").innerText = "Recording...";
-                document.getElementById("startBtn").innerText = "Stop Recording";
-            }
-        }
-    </script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { margin: 5px; padding: 10px 20px; }
+        #transcript { border: 1px solid #ccc; padding: 10px; min-height: 100px; }
+        .section { margin-top: 20px; }
+        .report { background: #f9f9f9; padding: 10px; border-radius: 5px; }
+    </style>
 </head>
 <body>
-    <h1>Speech Evaluation Tool</h1>
-    <button id="startBtn" onclick="toggleRecording()">Start Recording</button>
-    <p id="status">Not recording</p>
-    <h3>Live Transcript:</h3>
-    <p id="transcript"></p>
-    <div id="results"></div>
+    <h1>Speech Analysis App</h1>
+
+    <button onclick="startListening()">Start</button>
+    <button onclick="stopListening()">Stop</button>
+    <button onclick="generateReport()">Generate Report</button>
+
+    <div class="section">
+        <h3>Live Transcript:</h3>
+        <div id="transcript"></div>
+    </div>
+
+    <div class="section">
+        <h3>Analysis Report:</h3>
+        <div id="report" class="report"></div>
+    </div>
+
+    <script>
+        let recognition;
+        let transcriptText = '';
+        let lastTimestamp = 0;
+
+        function startListening() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            transcriptText = '';
+            lastTimestamp = Date.now();
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const currentTime = Date.now();
+                    const timeDiff = (currentTime - lastTimestamp) / 1000;
+                    lastTimestamp = currentTime;
+
+                    let result = event.results[i][0].transcript;
+                    if (timeDiff > 8) {
+                        result = '[pause_8s] ' + result;
+                    }
+
+                    if (event.results[i].isFinal) {
+                        transcriptText += result + ' ';
+                    } else {
+                        interimTranscript += result;
+                    }
+                }
+                document.getElementById('transcript').innerText = transcriptText + interimTranscript;
+            };
+
+            recognition.start();
+        }
+
+        function stopListening() {
+            if (recognition) {
+                recognition.stop();
+            }
+        }
+
+        function generateReport() {
+            fetch('/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transcript: transcriptText.trim() })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const report = `
+                    <strong>Transcript:</strong> ${data.transcript}<br><br>
+                    <strong>Filler Words:</strong> ${data.filler_words_found.join(', ') || 'None'}<br>
+                    <strong>Total Fillers:</strong> ${data.total_fillers}<br>
+                    <strong>Pauses (>8s):</strong> ${data.pause_count}<br><br>
+                    <strong>Grammar Issues:</strong><br>
+                    <ul>${data.grammar_issues.map(issue => `<li>${issue.message}<br><em>${issue.sentence}</em></li>`).join('')}</ul>
+                    <strong>Sentence Structure:</strong> ${data.structure_feedback}<br>
+                    <strong>Fluency:</strong> ${data.fluency}<br>
+                    <strong>Confidence:</strong> ${data.confidence}<br>
+                `;
+                document.getElementById('report').innerHTML = report;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error generating report. See console for details.');
+            });
+        }
+    </script>
 </body>
 </html>
