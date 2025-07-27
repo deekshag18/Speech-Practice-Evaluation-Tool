@@ -2,105 +2,112 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Speech Analysis App</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Speech Analyzer</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        button { margin: 5px; padding: 10px 20px; }
-        #transcript { border: 1px solid #ccc; padding: 10px; min-height: 100px; }
-        .section { margin-top: 20px; }
-        .report { background: #f9f9f9; padding: 10px; border-radius: 5px; }
-    </style>
+    
 </head>
 <body>
-    <h1>Speech Analysis App</h1>
 
-    <button onclick="startListening()">Start</button>
-    <button onclick="stopListening()">Stop</button>
-    <button onclick="generateReport()">Generate Report</button>
+<h2>Speech Analyzer</h2>
+<button onclick="startListening()">Start</button>
+<button onclick="stopListening()">Stop</button>
+<button onclick="generateReport()">Generate Report</button>
 
-    <div class="section">
-        <h3>Live Transcript:</h3>
-        <div id="transcript"></div>
-    </div>
+<h3>Live Transcript:</h3>
+<div id="transcript"></div>
 
-    <div class="section">
-        <h3>Analysis Report:</h3>
-        <div id="report" class="report"></div>
-    </div>
+<h3>Analysis Report:</h3>
+<div id="report"></div>
 
-    <script>
-        let recognition;
-        let transcriptText = '';
-        let lastTimestamp = 0;
+<script>
+    let recognition;
+    let transcriptText = '';
+    let lastTimestamp = 0;
 
-        function startListening() {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = 'en-US';
+    function startListening() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Speech Recognition not supported in this browser.");
+            return;
+        }
 
-            transcriptText = '';
-            lastTimestamp = Date.now();
+        recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+        transcriptText = '';
+        lastTimestamp = Date.now();
 
-            recognition.onresult = (event) => {
-                let interimTranscript = '';
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                    const currentTime = Date.now();
-                    const timeDiff = (currentTime - lastTimestamp) / 1000;
-                    lastTimestamp = currentTime;
+        recognition.onstart = () => console.log("Speech recognition started");
 
-                    let result = event.results[i][0].transcript;
-                    if (timeDiff > 8) {
-                        result = '[pause_8s] ' + result;
-                    }
+        recognition.onerror = (event) => {
+            console.error("Recognition error:", event.error);
+            alert("Speech Recognition Error: " + event.error);
+        };
 
-                    if (event.results[i].isFinal) {
-                        transcriptText += result + ' ';
-                    } else {
-                        interimTranscript += result;
-                    }
+        recognition.onresult = (event) => {
+            let interimTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                let result = event.results[i][0].transcript;
+                const now = Date.now();
+                if ((now - lastTimestamp) / 1000 > 8) {
+                    result = '[pause_2s] ' + result;
                 }
-                document.getElementById('transcript').innerText = transcriptText + interimTranscript;
-            };
+                lastTimestamp = now;
 
-            recognition.start();
-        }
-
-        function stopListening() {
-            if (recognition) {
-                recognition.stop();
+                if (event.results[i].isFinal) {
+                    transcriptText += result + ' ';
+                } else {
+                    interimTranscript += result;
+                }
             }
+            document.getElementById('transcript').innerText = transcriptText + interimTranscript;
+        };
+
+        recognition.start();
+    }
+
+    function stopListening() {
+        if (recognition) {
+            recognition.stop();
+            console.log("Speech recognition stopped");
+        }
+    }
+
+    function generateReport() {
+        if (!transcriptText.trim()) {
+            alert("Please speak something first.");
+            return;
         }
 
-        function generateReport() {
-            fetch('/analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transcript: transcriptText.trim() })
-            })
-            .then(response => response.json())
-            .then(data => {
-                const report = `
-                    <strong>Transcript:</strong> ${data.transcript}<br><br>
-                    <strong>Filler Words:</strong> ${data.filler_words_found.join(', ') || 'None'}<br>
-                    <strong>Total Fillers:</strong> ${data.total_fillers}<br>
-                    <strong>Pauses (>8s):</strong> ${data.pause_count}<br><br>
-                    <strong>Grammar Issues:</strong><br>
-                    <ul>${data.grammar_issues.map(issue => `<li>${issue.message}<br><em>${issue.sentence}</em></li>`).join('')}</ul>
-                    <strong>Sentence Structure:</strong> ${data.structure_feedback}<br>
-                    <strong>Fluency:</strong> ${data.fluency}<br>
-                    <strong>Confidence:</strong> ${data.confidence}<br>
-                `;
-                document.getElementById('report').innerHTML = report;
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Error generating report. See console for details.');
-            });
-        }
-    </script>
+        fetch('/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript: transcriptText.trim() })
+        })
+        .then(res => res.json())
+        .then(data => {
+            const report = `
+                <b>Transcript:</b><br>${data.transcript}<br><br>
+                <b>Filler Words:</b> ${data.filler_words_found.join(', ') || 'None'}<br>
+                <b>Total Fillers:</b> ${data.total_fillers}<br>
+                <b>Pauses :</b> ${data.pause_count}<br>
+                <b>Fluency:</b> ${data.fluency}<br>
+                <b>Structure:</b> ${data.structure_feedback}<br>
+                <b>Confidence:</b> ${data.confidence}<br><br>
+                <b>Grammar Issues:</b><ul>
+                    ${data.grammar_issues.map(issue => `<li>${issue.message}<br><i>${issue.sentence}</i></li>`).join('')}
+                </ul>
+            `;
+            document.getElementById('report').innerHTML = report;
+        })
+        .catch(err => {
+            console.error("Error fetching report:", err);
+            alert("Failed to analyze. See console.");
+        });
+    }
+</script>
+
 </body>
 </html>
